@@ -158,9 +158,13 @@ After:
                  ,CS.CUS_STATUS         AS SELLER_CUS_STATUS
                  ,SE.SEC_STATUS         AS SEC_STATUS
                  ,SACB.SAC_NUMBER       AS BUYER_SAC
+                 ,SACB.SAC_STATUS       AS BUYER_SAC_STATUS
                  ,SACS.SAC_NUMBER       AS SELLER_SAC
+                 ,SACS.SAC_STATUS       AS SELLER_SAC_STATUS
                  ,MACB.MAC_NUMBER       AS BUYER_MAC
+                 ,MACB.MAC_STATUS       AS BUYER_MAC_STATUS
                  ,MACS.MAC_NUMBER       AS SELLER_MAC
+                 ,MACS.MAC_STATUS       AS SELLER_MAC_STATUS
             FROM TBTRDORD B
             LEFT OUTER JOIN TBTRDORD S
               ON  S.ORD_CURRENCY      = B.ORD_CURRENCY
@@ -198,6 +202,35 @@ with the "not found" branches driven by null indicators rather than `SQLCODE = 1
       *       identical STRING / 9000-REPORT-EXCEPTION as today
            END-IF
 ```
+
+Two traps make this the riskiest item in this document, and both must be handled before
+it is attempted:
+
+**The status columns must be selected, not just the account numbers.** `TRDPB000:822`
+and `TRDPB000:1035` reject the order when `SAC-STATUS`/`MAC-STATUS` is not `'A'`, which
+is a *different* rejection from "row not found". A join that returns only
+`SAC_NUMBER`/`MAC_NUMBER` and validates on null indicators alone silently accepts orders
+against inactive accounts — hence `SAC_STATUS`/`MAC_STATUS` in the select list above, and
+the COBOL keeps both branches:
+
+```cobol
+           EVALUATE TRUE
+               WHEN WS-IND-BUYER-SAC < 0
+      *             'Buyer Security Account Not Found' path
+               WHEN WS-BUYER-SAC-STATUS NOT = 'A'
+      *             'Buyer Security Account Not active' path
+           END-EVALUATE
+```
+
+**The account joins can multiply rows.** `X2TRDSAC` is
+`(SAC_CUSTOMER_ID, SAC_CURRENCY, SAC_NUMBER)` and `X1TRDMAC` is
+`(MAC_CURRENCY, MAC_NUMBER)` — neither makes `(customer, currency)` unique, so a customer
+with two accounts in one currency yields two cursor rows for one buy order and the trade
+is booked twice. Today that same data produces `SQLCODE = -811` on the singleton
+`SELECT ... INTO`, which falls into the `WHEN OTHER` branch and rejects the order. Either
+confirm with the DBA team that `(SAC_CUSTOMER_ID, SAC_CURRENCY)` is unique in practice
+and enforce it with a unique index, or do not do this item — dedup in COBOL reintroduces
+the per-row work the join was meant to remove.
 
 Two caveats that make this MEASURE, not SAFE. First, the exception *order* within one
 order changes if the COBOL evaluates the fetched fields in a different sequence than the
@@ -253,8 +286,8 @@ worth more than any source change here.
 
 ### 2.1 Split the plan: reports vs. state-changing jobs — **BEHAVIOUR**
 
-`TRDPB004` and `TRDPB006` are read-only and currently share a plan with acceptance and
-settlement. Bind the report packages into their own plan with uncommitted read:
+`TRDPB006` is read-only and currently shares a plan with acceptance and settlement. Bind
+its package into its own plan with uncommitted read:
 
 ```text
 BIND PACKAGE(CLFRRPT) MEMBER(TRDPB006) ISOLATION(UR) CURRENTDATA(NO) -
@@ -276,6 +309,24 @@ read uncommitted settlement work, so it is a business call — for an end-of-day
 in a quiet window the exposure is nil, for an intraday run it is not. Note `TRDPB004`
 already has `WITH UR` written and commented out at line 209, and `TRDPB000`'s singleton
 lookups use `WITH UR` inline, so the shop's appetite for UR is evidently non-zero.
+
+`TRDPB004` must stay out of this plan, and it is worth being explicit about why, because
+its name and its three reports make it look read-only: it is not. After printing, it
+purges the tables it just reported on:
+
+```sql
+         DELETE FROM TBTRDSTQ      <== TRDPB004:792
+         DELETE FROM TBTRDLOG      <== TRDPB004:796
+         DELETE FROM TBTRDSUM      <== TRDPB004:800
+         DELETE FROM TBTRDEXC      <== TRDPB004:804
+```
+
+UR is wrong for a program that deletes, and it needs its package in a plan with the
+state-changing programs. Two consequences beyond the bind: the `PKLIST` above must not
+be the only place `TRDPB004` is bound, and — more importantly operationally — `EXECRPT`
+is a destructive job. It must not be rerun after a successful run, and it must not run
+concurrently with acceptance or settlement writing those same tables. Neither constraint
+is expressed anywhere in the JCL (see 9.9).
 
 ### 2.2 `RELEASE(DEALLOCATE)` on the settlement plan — **MEASURE**
 
@@ -689,6 +740,9 @@ pick from the curve — this is a card change only, no recompile:
 
 ## 6. `TRDPB004` and `TRDPB006` — reporting
 
+(`TRDPB004` reports *and then purges* `TBTRDSTQ`, `TBTRDLOG`, `TBTRDSUM`, `TBTRDEXC` —
+see 2.1. Everything below applies to its read phase only.)
+
 ### 6.1 `WITH HOLD` on cursors that never commit while open — **SAFE**
 
 `TRDPB006:187` declares `CLIENT_ORDERS ... WITH HOLD`; the only `COMMIT` is at
@@ -1018,10 +1072,20 @@ conditional execution:
 ```jcl
 //SETLUSD  EXEC TRDPROC,RUNPARM='SETLUSD'
 //*
-//         IF (SETLUSD.STEP01.RC > 4) THEN
-//FAILNOTE EXEC PGM=IEFBR14
+//         IF (SETLUSD.STEP01.RC >= 4) THEN
+//FAILNOTE EXEC PGM=IDCAMS
+//SYSPRINT DD SYSOUT=*
+//SYSIN    DD *
+  SET MAXCC = 4
+/*
 //         ENDIF
 ```
+
+Both details matter: the test must be `>= 4` (or `> 0`) or the RC 4 the COBOL now sets
+never fires it, and the step inside the `IF` must itself end non-zero — `IEFBR14` returns
+0, so the job would still end RC 0 and the scheduler would still see success. `IDCAMS`
+with `SET MAXCC` is the usual way to force a chosen code; substitute whatever the shop's
+notification/alerting step is.
 
 Classified DEFECT because today the batch cannot signal partial failure at all.
 
@@ -1213,6 +1277,26 @@ window of real mainframe outputs to diff against, which is the single biggest ga
 each `ACCP*`/`SETL*` job filters on exactly one currency, so no two currency jobs touch
 the same partition. Nothing in the JCL expresses this — the dependency graph lives in the
 scheduler, which is not in the repository.
+
+One table breaks the partitioning and must be resolved first: `TBTRDSUM` is keyed by
+`SUM_CUSTOMER_ID` alone (`X1TRDSUM` is unique on that single column), and `SUMMARY.cpy`
+— included by both `TRDPB000` and `TRDPB001` — reads the row, accumulates in
+working storage and writes it back:
+
+```cobol
+              UPDATE TBTRDSUM
+                 SET ...
+               WHERE SUM_CUSTOMER_ID = :SUM-CUSTOMER-ID
+```
+
+A customer trading in USD and EUR therefore has one shared summary row. Run the two
+currencies concurrently and the read-modify-write windows interleave: one job's totals
+overwrite the other's, silently, with no `SQLCODE` to notice. Three ways out, in order of
+preference: make the accumulation atomic in SQL
+(`SET SUM_TRADE_COUNT = SUM_TRADE_COUNT + 1, SUM_AMOUNT = SUM_AMOUNT + :DELTA`), which
+also fixes item 3.1's pattern; or add `SUM_CURRENCY` to the key and aggregate at read
+time in `TRDPB004`; or serialise only the summary update. Until one of them is done, the
+ten currencies are *not* safely concurrent, whatever the partitioning says.
 
 If the ten pairs run serially today, the batch window is ~10× longer than it needs to be,
 and this is the largest single elapsed-time item in the whole review. What the JCL *does*
