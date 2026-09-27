@@ -18,15 +18,14 @@ the callee name lives in a working-storage field, not a literal. Any tool that
 builds a call graph from `CALL 'NAME'` finds nothing. See
 `01-call-graph.md` for the resolved graph.
 
-## 3. `TRDPB003` declares `PROGRAM-ID. TRDPB002`
+## 3. `TRDPB003` used to declare `PROGRAM-ID. TRDPB002`
 
-`cobol/TRDPB003` carries `PROGRAM-ID. TRDPB002` and a comment header that also
-says `TRDPB002`. On z/OS the load module name comes from the link-edit member,
-so the mismatch is invisible today; in any environment where the `PROGRAM-ID`
+`cobol/TRDPB003` carried `PROGRAM-ID. TRDPB002` and a comment header that also
+said `TRDPB002`. On z/OS the load module name comes from the link-edit member,
+so the mismatch was invisible; in any environment where the `PROGRAM-ID`
 resolves the call (GnuCOBOL, a Java port keyed on program name), `TRDPB001`
-will call the securities booking program twice and never touch money accounts.
-This must be fixed deliberately, and the fix must not change mainframe
-behaviour.
+would call the securities booking program twice and never touch money accounts.
+Corrected to `TRDPB003`; no executable statement changed.
 
 ## 4. Packed decimal and rounding
 

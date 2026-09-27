@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: trade-reports
+  # Spring Batch metadata only; the trading data lives in trade.datasource below.
+  datasource:
+    url: jdbc:h2:mem:batch;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  batch:
+    jdbc:
+      initialize-schema: always
+    job:
+      enabled: true
+
+trade:
+  datasource:
+    # Read only: opening the shipped H2 file read/write rewrites it.
+    url: jdbc:h2:file:${TRADE_DB:../../db2/portable-db2-h2/Trade-db};ACCESS_MODE_DATA=r;SCHEMA=TRADE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  report:
+    reporder-file: target/reports/CLOUDFRM.TRADING.BATCHDB2.REPORDER.REPORT
+    # The mainframe writes EBCDIC; the reference reports in output/ were transferred
+    # to ISO-8859-1, which is what the comparison uses.
+    charset: ISO-8859-1
+
+logging:
+  level:
+    org.springframework.batch: INFO
