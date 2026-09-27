@@ -11,6 +11,7 @@ modernising them without changing behaviour.
 | [`03-equivalence-harness.md`](03-equivalence-harness.md) | How to prove a port behaves identically, using the fixtures already in this repo |
 | [`04-clusters.md`](04-clusters.md) | Independently convertible slices and the order to do them in |
 | [`05-gotchas.md`](05-gotchas.md) | The 13 things that will break a naive conversion |
+| [`06-optimization-opportunities.md`](06-optimization-opportunities.md) | COBOL, DB2 and JCL optimizations, with the exact code change for each |
 
 ## Getting started in one page
 
