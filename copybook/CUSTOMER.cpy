@@ -1,0 +1,10 @@
+       01  LS-CUSTOMER-IO.
+          05 LS-CUSTOMER-ID            PIC X(12).
+          05 LS-CUSTOMER-CURRENCY      PIC X(3).
+          05 LS-CUSTOMER-DESCRIPTION   PIC X(40).
+          05 LS-CUSTOMER-ERROR-MSG     PIC X(200).
+          05 LS-CUSTOMER-STATUS        PIC X(1).
+             88 88-CUSTOMER-NOT-FOUND   VALUE 'N'.
+             88 88-CUSTOMER-ACTIVE      VALUE 'A'.
+             88 88-CUSTOMER-INACTIVE    VALUE 'I'.
+             88 88-CUSTOMER-EXCEPTION   VALUE 'S'.
