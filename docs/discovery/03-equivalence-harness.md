@@ -61,11 +61,27 @@ does not process. Two workable routes:
 The second route is the cheaper default. Take the first only when you need to
 generate new fixtures faster than the mainframe team can produce them.
 
+## What is already wired up
+
+`java/trade-reports` is the Spring Batch port of `TRDPB006`, and
+`TradeOrderReportEquivalenceTest` is the first live instance of this harness:
+it runs the job against the H2 fixture and asserts the 11,816-record output is
+byte-for-byte identical to `output/CLOUDFRM.TRADING.BATCHDB2.REPORDER.REPORT.MF`.
+
+One caveat it documents in code: the shipped H2 database is pre-run state (all
+orders `101`) and does not belong to the run that produced the golden report,
+so the test replays `ORD_STATUS`, `ORD_QUANTITY` and `ORD_AMOUNT` from the
+report onto a copy of the database before running the job. A post-run database
+dump from the mainframe removes the replay — it is the first item on the
+fixture request list below.
+
 ## Where the goldens are thin
 
 `output/*.MF` is one run of one dataset. Before conversion starts, ask the
 mainframe team for runs that exercise:
 
+- a **post-run dump of `TBTRDORD`** for the run the reports in `output/` came
+  from (see above);
 - every overdue status `301`–`308` (the current exception report only shows
   inactive-customer and a few other cases);
 - a settlement that fails on the money leg after the securities leg succeeded

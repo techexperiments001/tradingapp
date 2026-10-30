@@ -1,8 +1,8 @@
 000100 IDENTIFICATION DIVISION.                                         00010000
-000200 PROGRAM-ID. TRDPB002.                                            00020006
+000200 PROGRAM-ID. TRDPB003.                                            00020006
 000300***************************************************************** 00030000
 000400*                                                               * 00040000
-000500* TRDPB002 : Money Book-keeping Program                         * 00050006
+000500* TRDPB003 : Money Book-keeping Program                         * 00050006
 000600*                                                               * 00060000
 000700*  - Settles Securities Account of Buyer/Seller by crediting    * 00070000
 000800*    Seller Security Account and Debiting  Buyer Security       * 00080000
